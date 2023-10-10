@@ -1,0 +1,27 @@
+name: ghostface-net
+channels:
+ - conda-forge
+ - pytorch
+ - defaults
+ - nvidia
+dependencies:
+  - python==3.10.9
+  - pip
+  - pytorch==1.13.1
+  - cudatoolkit==11.8.0
+  - pandas==1.5.3
+  - scikit-learn==1.2.1
+  - tqdm==4.65.0
+  - Cython==0.29.33
+  - matplotlib==3.7.0
+  - numpy==1.23.5
+  - pycocotools==2.0.6
+  - Pillow==9.4.0
+  - glob2==0.7
+  - scikit-learn==1.2.1
+  - keras==2.10.0
+  - tensorflow==2.10.1
+  - pip:
+    - keras_cv_attention_models
+    - scikit-image==0.20.0
+    - scipy==1.10.1

@@ -14,14 +14,14 @@ from scipy import misc
 from sklearn.model_selection import KFold
 from scipy import interpolate
 import sklearn
-from sklearn.decomposition import PCA
-
+from sklearn.decomposition import PCA 
 
 class eval_callback(tf.keras.callbacks.Callback):
     def __init__(self, basic_model, test_bin_file, batch_size=128, save_model=None, eval_freq=1, flip=True, PCA_acc=False):
         super(eval_callback, self).__init__()
-        bins, issame_list = np.load(test_bin_file, encoding="bytes", allow_pickle=True)
+        bins, image_list, issame_list = np.load(test_bin_file, encoding="bytes", allow_pickle=True)
         ds = tf.data.Dataset.from_tensor_slices(bins)
+        self.IMGN = image_list
         _imread = lambda xx: (tf.cast(tf.image.decode_image(xx, channels=3), "float32") - 127.5) * 0.0078125
         ds = ds.map(_imread)
         self.ds = ds.batch(batch_size)
@@ -117,17 +117,37 @@ class eval_callback(tf.keras.callbacks.Callback):
                 "\n>>>> %s evaluation max accuracy: %f, thresh: %f, previous max accuracy: %f, PCA accuray = %f ± %f"
                 % (self.test_names, acc_max, self.acc_thresh, self.max_accuracy, acc2, std2)
             )
+            # # Added code
+            # # Issue: https://github.com/HamadYA/GhostFaceNets/issues/5
+            # # Get the index of incorrectly classified pairs based on the current threshold
+            # incorrect_idx = np.where((self.test_issame[:dists.shape[0]] == True) & (dists < self.acc_thresh) |
+            #                         (self.test_issame[:dists.shape[0]] == False) & (dists >= self.acc_thresh))[0]
+
+            # # Print the incorrectly classified pairs
+            # print(f"Incorrectly classified pairs (threshold={self.acc_thresh}):")
+            # for i in incorrect_idx:
+            #     print(f"Pair {i}: {'same' if self.test_issame[i] else 'different'} pair, distance={dists[i]}")
+            # # End added code
+
             # Added code
-            # Issue: https://github.com/HamadYA/GhostFaceNets/issues/5
             # Get the index of incorrectly classified pairs based on the current threshold
             incorrect_idx = np.where((self.test_issame[:dists.shape[0]] == True) & (dists < self.acc_thresh) |
-                                    (self.test_issame[:dists.shape[0]] == False) & (dists >= self.acc_thresh))[0]
+                                    (self.test_issame[:dists.shape[0]] == False) & (dists > self.acc_thresh))[0]
 
-            # Print the incorrectly classified pairs
-            print(f"Incorrectly classified pairs (threshold={self.acc_thresh}):")
-            for i in incorrect_idx:
-                print(f"Pair {i}: {'same' if self.test_issame[i] else 'different'} pair, distance={dists[i]}")
+            if (len(incorrect_idx) > 0):
+                # Print the incorrectly classified pairs
+                print("\n### CÁC CẶP ẢNH DỰ ĐOÁN SAI ###")
+                for i in incorrect_idx:
+                    print(f"Cặp ảnh {i}")
+                    print(f"Ảnh {i}_1: {self.IMGN[2 * i - 2]}")
+                    print(f"Ảnh {i}_2: {self.IMGN[2 * i - 1]}")
+                    print(f"Kết quả thực tế: {'Giống nhau' if self.test_issame[i] else 'Khác nhau'}")
+                    print(f"Mô hình dự đoán: {'Khác nhau' if self.test_issame[i] else 'Giống nhau'}")
+                    print()
+            else:
+                print("\n### DỰ ĐOÁN ĐÚNG TOÀN BỘ CÁC CẶP ẢNH ###\n")
             # End added code
+
         else:
             tf.print(
                 "\n>>>> %s evaluation max accuracy: %f, thresh: %f, previous max accuracy: %f" % (self.test_names, acc_max, self.acc_thresh, self.max_accuracy)

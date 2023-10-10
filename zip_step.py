@@ -8,23 +8,6 @@ from skimage.io import imread
 from face_detector import YoloV5FaceDetector
 from datetime import datetime
 
-# IMAGE FOLDER PATH
-image_folder_path = r"./datasets/testcase/imgs/"
-
-# CSV PATH
-csv_path = r"./datasets/testcase/csv/pair_imgs.csv"
-
-# LOAD MODEL
-basic_model = keras.models.load_model('checkpoints/GN_W1.3_S2_ArcFace_epoch48.h5', compile=False)
-
-start_time = time.time()
-
-current_datetime = datetime.now()
-sub_folder_name = current_datetime.strftime("%Y%m%d%H%M%S/")
-dest_path = './crop_dataset/' + sub_folder_name
-YoloV5FaceDetector().detect_in_folder_2(image_folder_path, dest_path)
-print()
-
 def read_csv_file(csv_path):
     df = pd.read_csv(csv_path, encoding='utf-8')
     image_list = df.iloc[:, [0, 1]].values
@@ -32,20 +15,46 @@ def read_csv_file(csv_path):
 
     return image_list.flatten(), is_same_list
 
-image_list, is_same_list = read_csv_file(csv_path)
+def zip_step(imgs_path, csv_path, model_path, bin_path):
+    # LOAD MODEL
+    basic_model = keras.models.load_model(model_path, compile=False)
 
-for i in range(len(image_list)):
-    image_list[i] = dest_path + image_list[i]
+    start_time = time.time()
 
-# BIN DATA PATH
-bin_data_path = r"./binn/vastd.bin"
-bb = [tf.image.encode_jpeg(imread(ii)).numpy() for ii in image_list]
-with open(bin_data_path, "wb") as ff:
-    pickle.dump([bb, image_list, is_same_list], ff)
+    current_datetime = datetime.now()
+    sub_folder_name = current_datetime.strftime("%Y%m%d%H%M%S/")
+    dest_path = './crop_dataset/' + sub_folder_name
+    YoloV5FaceDetector().detect_in_folder_2(imgs_path, dest_path)
+    print()
 
-ee = evals.eval_callback(basic_model, bin_data_path, batch_size=256, flip=True, PCA_acc=True)
-ee.on_epoch_end(0)
+    image_list, is_same_list = read_csv_file(csv_path)
 
-end_time = time.time()
-total_time = end_time - start_time
-print('Total running time:', round(total_time, 5), '(s)')
+    for i in range(len(image_list)):
+        image_list[i] = dest_path + image_list[i]
+
+    bb = [tf.image.encode_jpeg(imread(ii)).numpy() for ii in image_list]
+    with open(bin_path, "wb") as ff:
+        pickle.dump([bb, image_list, is_same_list], ff)
+
+    ee = evals.eval_callback(basic_model, bin_path, batch_size=256, flip=True, PCA_acc=True)
+    ee.on_epoch_end(0)
+
+    end_time = time.time()
+    total_time = end_time - start_time
+    print('Total running time:', round(total_time, 5), '(s)')
+
+if __name__ == '__main__':
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("-d", "--data_path", type=str, default=None, help="Data path, containing images in folders")
+    parser.add_argument("-c", "--csv_path", type=str, default=None, help="CSV file, containing pair images")
+    parser.add_argument("-m", "--model_file", type=str, default=None, help="Model file, keras h5")
+    parser.add_argument("-B", "--save_bins", type=str, default=None, help="Save evaluating pair bin")
+
+    args = parser.parse_known_args(sys.argv[1:])[0]
+
+    zip_step(args.data_path, args.csv_path, args.model_file, args.save_bins)
+
+# python zip_step.py -d ./datasets/testcase/imgs/ -c ./datasets/testcase/csv/pair_imgs.csv -m ./checkpoints/GN_W1.3_S2_ArcFace_epoch48.h5 -B ./binn/vastd.bin

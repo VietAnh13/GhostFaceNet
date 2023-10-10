@@ -85,6 +85,31 @@ class BaseDetector:
                 print(">>>> None face detected in image:", imm)
         print(">>>> Saved aligned face images in:", dest_path)
         return dest_path
+    
+    def detect_in_folder_2(self, data_path, dest_path, max_output_size=15, iou_threshold=0.45, score_threshold=0.25):
+        while data_path.endswith(os.sep):
+            data_path = data_path[:-1]
+        imms = glob(os.path.join(data_path, "*", "*"))
+        use_class = True
+        if len(imms) == 0:
+            imms = glob(os.path.join(data_path, "*"))
+            use_class = False
+
+        for imm in tqdm(imms, "Detecting"):
+            _, _, _, nimages = self.detect_in_image(imm, max_output_size, iou_threshold, score_threshold, image_format="RGB")
+            if nimages.shape[0] != 0:
+                file_name = os.path.basename(imm)
+                if use_class:
+                    class_name = os.path.basename(os.path.dirname(imm))
+                    save_dir = os.path.join(dest_path, class_name)
+                else:
+                    save_dir = dest_path
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                imsave(os.path.join(save_dir, file_name), nimages[0])  # Use only the first one
+            else:
+                print(">>>> None face detected in image:", imm)
+        print(">>>> Saved aligned face images in:", dest_path)
 
     def show_result(self, image, bbs, pps=[], ccs=[]):
         import matplotlib.pyplot as plt
