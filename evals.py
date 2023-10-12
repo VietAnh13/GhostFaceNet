@@ -14,7 +14,8 @@ from scipy import misc
 from sklearn.model_selection import KFold
 from scipy import interpolate
 import sklearn
-from sklearn.decomposition import PCA 
+from sklearn.decomposition import PCA
+import time 
 
 class eval_callback(tf.keras.callbacks.Callback):
     def __init__(self, basic_model, test_bin_file, batch_size=128, save_model=None, eval_freq=1, flip=True, PCA_acc=False):
@@ -111,7 +112,8 @@ class eval_callback(tf.keras.callbacks.Callback):
         self.cur_acc = acc_max
 
         if self.PCA_acc:
-            _, _, accuracy, val, val_std, far = evaluate(embs, self.test_issame, nrof_folds=10)
+            # _, _, accuracy, val, val_std, far = evaluate(embs, self.test_issame, nrof_folds=10)
+            accuracy = fast_evaluate(embs, self.test_issame, nrof_folds=10)
             acc2, std2 = np.mean(accuracy), np.std(accuracy)
             tf.print(
                 "\n>>>> %s evaluation max accuracy: %f, thresh: %f, previous max accuracy: %f, PCA accuray = %f ± %f"
@@ -153,17 +155,17 @@ class eval_callback(tf.keras.callbacks.Callback):
                 "\n>>>> %s evaluation max accuracy: %f, thresh: %f, previous max accuracy: %f" % (self.test_names, acc_max, self.acc_thresh, self.max_accuracy)
             )
 
-        if acc_max >= self.max_accuracy:
-            tf.print(">>>> Improved = %f" % (acc_max - self.max_accuracy))
-            self.max_accuracy = acc_max
-            if self.save_model:
-                save_name_base = "%s_basic_%s_epoch_" % (self.save_model, self.test_names)
-                save_path_base = os.path.join("checkpoints", save_name_base)
-                # for ii in glob2.glob(save_path_base + "*.h5"):
-                    # os.remove(ii)
-                save_path = save_path_base + "%s_%f.h5" % (cur_step, self.max_accuracy)
-                tf.print("Saving model to: %s" % (save_path))
-                self.basic_model.save(save_path, include_optimizer=False)
+        # if acc_max >= self.max_accuracy:
+        #     tf.print(">>>> Improved = %f" % (acc_max - self.max_accuracy))
+        #     self.max_accuracy = acc_max
+        #     if self.save_model:
+        #         save_name_base = "%s_basic_%s_epoch_" % (self.save_model, self.test_names)
+        #         save_path_base = os.path.join("checkpoints", save_name_base)
+        #         # for ii in glob2.glob(save_path_base + "*.h5"):
+        #             # os.remove(ii)
+        #         save_path = save_path_base + "%s_%f.h5" % (cur_step, self.max_accuracy)
+        #         tf.print("Saving model to: %s" % (save_path))
+        #         self.basic_model.save(save_path, include_optimizer=False)
 
 
 def half_split_weighted_cosine_similarity_11(aa, bb):
@@ -240,6 +242,50 @@ def calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, nrof_fold
     return tpr, fpr, accuracy
 
 
+def fast_calculate_roc(thresholds, embeddings1, embeddings2, actual_issame, nrof_folds=10, pca=0):
+    assert embeddings1.shape[0] == embeddings2.shape[0]
+    assert embeddings1.shape[1] == embeddings2.shape[1]
+    nrof_pairs = min(len(actual_issame), embeddings1.shape[0])
+    nrof_thresholds = len(thresholds)
+    k_fold = KFold(n_splits=nrof_folds, shuffle=False)
+
+    accuracy = np.zeros((nrof_folds))
+    indices = np.arange(nrof_pairs)
+    # print('pca', pca)
+
+    if pca == 0:
+        diff = np.subtract(embeddings1, embeddings2)
+        dist = np.sum(np.square(diff), 1)
+
+    for fold_idx, (train_set, test_set) in enumerate(k_fold.split(indices)):
+        # print('train_set', train_set)
+        # print('test_set', test_set)
+        if pca > 0:
+            print("doing pca on", fold_idx)
+            embed1_train = embeddings1[train_set]
+            embed2_train = embeddings2[train_set]
+            _embed_train = np.concatenate((embed1_train, embed2_train), axis=0)
+            # print(_embed_train.shape)
+            pca_model = PCA(n_components=pca)
+            pca_model.fit(_embed_train)
+            embed1 = pca_model.transform(embeddings1)
+            embed2 = pca_model.transform(embeddings2)
+            embed1 = sklearn.preprocessing.normalize(embed1)
+            embed2 = sklearn.preprocessing.normalize(embed2)
+            # print(embed1.shape, embed2.shape)
+            diff = np.subtract(embed1, embed2)
+            dist = np.sum(np.square(diff), 1)
+
+        # Find the best threshold for the fold
+        acc_train = np.zeros((nrof_thresholds))
+        for threshold_idx, threshold in enumerate(thresholds):
+            acc_train[threshold_idx] = fast_calculate_accuracy(threshold, dist[train_set], actual_issame[train_set])
+        best_threshold_index = np.argmax(acc_train)
+        accuracy[fold_idx] = fast_calculate_accuracy(thresholds[best_threshold_index], dist[test_set], actual_issame[test_set])
+
+    return accuracy
+
+
 def calculate_accuracy(threshold, dist, actual_issame):
     predict_issame = np.less(dist, threshold)
     tp = np.sum(np.logical_and(predict_issame, actual_issame))
@@ -251,6 +297,14 @@ def calculate_accuracy(threshold, dist, actual_issame):
     fpr = 0 if (fp + tn == 0) else float(fp) / float(fp + tn)
     acc = float(tp + tn) / dist.size
     return tpr, fpr, acc
+
+def fast_calculate_accuracy(threshold, dist, actual_issame):
+    predict_issame = np.less(dist, threshold)
+    tp = np.sum(np.logical_and(predict_issame, actual_issame))
+    tn = np.sum(np.logical_and(np.logical_not(predict_issame), np.logical_not(actual_issame)))
+
+    acc = float(tp + tn) / dist.size
+    return acc
 
 
 def calculate_val(thresholds, embeddings1, embeddings2, actual_issame, far_target, nrof_folds=10):
@@ -311,6 +365,12 @@ def evaluate(embeddings, actual_issame, nrof_folds=10, pca=0):
     val, val_std, far = calculate_val(thresholds, embeddings1, embeddings2, np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds)
     return tpr, fpr, accuracy, val, val_std, far
 
+def fast_evaluate(embeddings, actual_issame, nrof_folds=10, pca=0):
+    thresholds = np.arange(0, 4, 0.01)
+    embeddings1 = embeddings[0::2]
+    embeddings2 = embeddings[1::2]
+    accuracy = fast_calculate_roc(thresholds, embeddings1, embeddings2, np.asarray(actual_issame), nrof_folds=nrof_folds, pca=pca)
+    return accuracy
 
 if __name__ == "__main__":
     import sys
